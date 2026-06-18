@@ -1,0 +1,9 @@
+name: Feature request
+description: Suggest a feature or provider integration
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What should AISecurityControlPlane do?
+    validations:
+      required: true

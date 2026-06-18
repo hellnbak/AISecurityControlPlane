@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "AISecurityControlPlane Claude.ai Web Guard MVP",
+  "version": "0.4.0",
+  "description": "Client-side web enforcement for Claude.ai: paste, typing, upload, fetch, XHR, and beacon policy checks through a local AISecurityControlPlane.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*", "https://*.claude.ai/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page_hook.js"],
+      "matches": ["https://claude.ai/*", "https://*.claude.ai/*"]
+    }
+  ]
+}

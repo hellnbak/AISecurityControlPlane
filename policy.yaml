@@ -1,0 +1,253 @@
+# AISecurityControlPlane policy
+# v0.6 adds provider fallback, failover, and budget-aware downgrades.
+version: secureai-policy-2026-06-18-v0.6
+
+defaults:
+  default_provider: anthropic
+  default_model: claude-sonnet-4-6
+  low_cost_model: claude-haiku-4-5
+  strong_model: claude-opus-4-8
+  block_streaming: true
+  max_output_tokens: 4096
+  monthly_budget_usd_per_user: 100.00
+  daily_budget_usd_per_user: 10.00
+
+providers:
+  anthropic:
+    default_model: claude-sonnet-4-6
+    models:
+      - claude-haiku-4-5
+      - claude-sonnet-4-6
+      - claude-opus-4-8
+    notes: Native Claude Messages API plus OpenAI-compatible chat adapter.
+  openai:
+    default_model: gpt-4.1-mini
+    models:
+      - gpt-4.1-mini
+      - gpt-4.1
+      - gpt-4o-mini
+    notes: OpenAI-compatible /v1/chat/completions route.
+  gemini:
+    default_model: gemini-3.5-flash
+    models:
+      - gemini-3.5-flash
+      - gemini-3.5-pro
+    notes: Google Gemini generateContent adapter behind OpenAI-compatible route.
+
+model_aliases:
+  auto-secure: claude-sonnet-4-6
+  low-cost: claude-haiku-4-5
+  strong: claude-opus-4-8
+  openai-fast: gpt-4.1-mini
+  openai-strong: gpt-4.1
+  gemini-fast: gemini-3.5-flash
+  gemini-strong: gemini-3.5-pro
+
+allowed_models:
+  - claude-haiku-4-5
+  - claude-sonnet-4-6
+  - claude-opus-4-8
+  - auto-secure
+  - low-cost
+  - strong
+  - gpt-4.1-mini
+  - gpt-4.1
+  - gpt-4o-mini
+  - gemini-3.5-flash
+  - gemini-3.5-pro
+  - openai-fast
+  - openai-strong
+  - gemini-fast
+  - gemini-strong
+
+blocked_models: []
+
+# USD per million tokens. Keep this config updated from Anthropic pricing.
+pricing_per_mtok:
+  claude-haiku-4-5:
+    input: 1.00
+    output: 5.00
+  claude-sonnet-4-6:
+    input: 3.00
+    output: 15.00
+  claude-opus-4-8:
+    input: 5.00
+    output: 25.00
+  gpt-4.1-mini:
+    input: 0.00
+    output: 0.00
+  gpt-4.1:
+    input: 0.00
+    output: 0.00
+  gpt-4o-mini:
+    input: 0.00
+    output: 0.00
+  gemini-3.5-flash:
+    input: 0.00
+    output: 0.00
+  gemini-3.5-pro:
+    input: 0.00
+    output: 0.00
+
+security:
+  block_on_secret: true
+  block_on_private_key: true
+  block_on_sensitive_upload: true
+  warn_on_pii: true
+  redact_on_pii: false
+  block_on_jailbreak: false
+
+web_controls:
+  enabled: true
+  inspect_paste: true
+  inspect_typing_before_submit: true
+  inspect_file_uploads: true
+  inspect_drag_drop: true
+  inspect_fetch: true
+  inspect_xhr: true
+  inspect_send_beacon: audit_only
+  fail_closed_on_gateway_unavailable: true
+  max_body_chars: 250000
+  control_hosted_model_selector: true
+
+web_model_control:
+  enabled: true
+  mode: rewrite_if_possible
+  forced_model: claude-sonnet-4-6
+  display_name: "AISecurityControlPlane enforced: Claude Sonnet"
+  allowed_model_patterns:
+    - sonnet
+    - haiku
+  blocked_model_patterns:
+    - opus
+    - fable
+    - mythos
+  hide_blocked_ui_options: true
+  block_clicks_on_blocked_options: true
+  inject_enforcement_badge: true
+
+routing:
+  confidential_data_model: claude-sonnet-4-6
+  public_summarization_model: claude-haiku-4-5
+  security_code_review_model: claude-sonnet-4-6
+  provider_fallback_order:
+    - anthropic
+    - openai
+    - gemini
+
+  # Provider fallback/failover for the OpenAI-compatible /v1/chat/completions route.
+  # The gateway tries the requested/resolved model first, then walks this chain when
+  # the provider is unavailable, not configured, rate-limited, or returns a retryable error.
+  fallback:
+    enabled: true
+    max_attempts: 3
+    retry_status_codes:
+      - 408
+      - 409
+      - 425
+      - 429
+      - 500
+      - 502
+      - 503
+      - 504
+    fallback_order:
+      - anthropic
+      - openai
+      - gemini
+    chains:
+      claude-opus-4-8:
+        - claude-sonnet-4-6
+        - gpt-4.1
+        - gemini-3.5-pro
+      claude-sonnet-4-6:
+        - gpt-4.1
+        - gemini-3.5-pro
+      claude-haiku-4-5:
+        - gpt-4.1-mini
+        - gemini-3.5-flash
+      gpt-4.1:
+        - claude-sonnet-4-6
+        - gemini-3.5-pro
+      gpt-4.1-mini:
+        - claude-haiku-4-5
+        - gemini-3.5-flash
+      gemini-3.5-pro:
+        - claude-sonnet-4-6
+        - gpt-4.1
+      gemini-3.5-flash:
+        - claude-haiku-4-5
+        - gpt-4.1-mini
+
+    # Optional downgrade when a user is approaching budget. This is intentionally
+    # conservative in the MVP; production should combine this with per-team policy.
+    budget_downgrade:
+      enabled: true
+      threshold_pct: 0.80
+      default_model: claude-haiku-4-5
+      models:
+        claude-opus-4-8: claude-sonnet-4-6
+        claude-sonnet-4-6: claude-haiku-4-5
+        gpt-4.1: gpt-4.1-mini
+        gemini-3.5-pro: gemini-3.5-flash
+
+control_plane:
+  gateway_url: http://127.0.0.1:8787
+  policy_bundle_ttl_minutes: 1440
+  signing_key_id: local-dev
+  max_event_ingest_batch: 1000
+
+fail_modes:
+  secrets_detected: block
+  model_violation: block
+  unknown_ai_domain: block
+  policy_service_unreachable: use_cache
+  policy_cache_expired: block_high_risk
+  audit_pipeline_unavailable: spool_to_disk
+
+sensitive_uploads:
+  extensions:
+    - .pem
+    - .key
+    - .p12
+    - .pfx
+    - .env
+    - .kubeconfig
+    - .tfstate
+    - .sqlite
+    - .db
+  names:
+    - id_rsa
+    - id_ed25519
+    - credentials
+    - credentials.csv
+    - aws_credentials
+    - secrets.yaml
+    - secrets.yml
+    - terraform.tfstate
+
+identity:
+  auth_mode_default: optional
+  require_trusted_device_for_policy_bundle: false
+  require_trusted_device_for_api_proxy: false
+  privileged_groups:
+    - security
+    - ai-admins
+  group_policy_examples:
+    security:
+      monthly_budget_usd_per_user: 250
+      allowed_model_patterns:
+        - sonnet
+        - haiku
+    contractors:
+      monthly_budget_usd_per_user: 25
+      blocked_model_patterns:
+        - opus
+        - fable
+        - mythos
+
+device_trust:
+  trusted_posture_examples:
+    disk_encrypted: true
+    managed: true
+    edr_present: true
+  production_recommendation: mtls_or_mdm_issued_certificate

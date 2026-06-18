@@ -1,0 +1,172 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-security-control-plane-policy
+  labels:
+    app: ai-security-control-plane
+data:
+  policy.yaml: |
+    version: ai-security-control-plane-policy-k8s-placeholder
+    defaults:
+      default_model: claude-sonnet-4-6
+      max_output_tokens: 4096
+      monthly_budget_usd_per_user: 100
+      daily_budget_usd_per_user: 10
+      block_streaming: true
+    allowed_models: [claude-haiku-4-5, claude-sonnet-4-6, auto-secure]
+    blocked_models: [claude-opus-4-8]
+    model_aliases:
+      auto-secure: claude-sonnet-4-6
+    pricing_per_mtok:
+      claude-haiku-4-5: {input: 1.00, output: 5.00}
+      claude-sonnet-4-6: {input: 3.00, output: 15.00}
+    security:
+      block_on_secret: true
+      block_on_private_key: true
+      block_on_sensitive_upload: true
+      warn_on_pii: true
+    web_controls:
+      enabled: true
+      inspect_paste: true
+      inspect_fetch: true
+      inspect_xhr: true
+    web_model_control:
+      enabled: true
+      mode: rewrite_if_possible
+      forced_model: claude-sonnet-4-6
+      allowed_model_patterns: [sonnet, haiku]
+      blocked_model_patterns: [opus]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-security-control-plane
+  labels:
+    app: ai-security-control-plane
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ai-security-control-plane
+  template:
+    metadata:
+      labels:
+        app: ai-security-control-plane
+    spec:
+      containers:
+        - name: gateway
+          image: ai-security-control-plane:0.6.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8787
+          env:
+            - name: ORG_ID
+              value: demo-org
+            - name: POLICY_PATH
+              value: /etc/ai-security-control-plane/policy.yaml
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: database_url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: redis_url
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: anthropic_api_key
+            - name: SECUREAI_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: signing_secret
+            - name: AUTH_MODE
+              value: required
+            - name: DEVICE_TRUST_MODE
+              value: required
+            - name: OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: oidc_issuer
+            - name: OIDC_AUDIENCE
+              value: api://ai-security-control-plane
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: oidc_client_id
+            - name: DEVICE_ENROLLMENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: device_enrollment_token
+            - name: JUMPCLOUD_ENABLE_ENRICHMENT
+              value: "true"
+            - name: JUMPCLOUD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-security-control-plane-secrets
+                  key: jumpcloud_api_key
+          volumeMounts:
+            - name: policy
+              mountPath: /etc/ai-security-control-plane
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+      volumes:
+        - name: policy
+          configMap:
+            name: ai-security-control-plane-policy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-security-control-plane
+spec:
+  type: ClusterIP
+  selector:
+    app: ai-security-control-plane
+  ports:
+    - port: 8787
+      targetPort: 8787
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ai-security-control-plane
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ai-security-control-plane
+  minReplicas: 3
+  maxReplicas: 25
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60

@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: secureai
+      POSTGRES_PASSWORD: secureai
+      POSTGRES_DB: secureai
+    ports:
+      - "5432:5432"
+    volumes:
+      - secureai-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secureai -d secureai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - secureai-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  gateway:
+    build:
+      context: ../..
+    environment:
+      ORG_ID: demo-org
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DATABASE_URL: postgresql+psycopg://secureai:secureai@postgres:5432/secureai
+      REDIS_URL: redis://redis:6379/0
+      POLICY_PATH: policy.yaml
+      SECUREAI_SIGNING_SECRET: ${SECUREAI_SIGNING_SECRET:-change-me}
+      AUDIT_ASYNC_ENABLED: "true"
+      AUDIT_QUEUE_MAX_SIZE: "10000"
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+      DEVICE_TRUST_MODE: ${DEVICE_TRUST_MODE:-optional}
+      DEVICE_ENROLLMENT_TOKEN: ${DEVICE_ENROLLMENT_TOKEN:-change-me}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-api://secureai}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_GROUPS_CLAIM: ${OIDC_GROUPS_CLAIM:-groups}
+      JUMPCLOUD_ENABLE_ENRICHMENT: ${JUMPCLOUD_ENABLE_ENRICHMENT:-false}
+      JUMPCLOUD_API_KEY: ${JUMPCLOUD_API_KEY:-}
+      JUMPCLOUD_ORG_ID: ${JUMPCLOUD_ORG_ID:-}
+    ports:
+      - "8787:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../../policy.yaml:/app/policy.yaml:ro
+      - secureai-spool:/app/data
+
+volumes:
+  secureai-postgres:
+  secureai-redis:
+  secureai-spool:
