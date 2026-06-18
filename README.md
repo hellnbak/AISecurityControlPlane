@@ -215,15 +215,4 @@ ADMIN_ENABLE_POLICY_WRITE=false
 - [`docs/PUBLIC_RELEASE_CHECKLIST.md`](docs/PUBLIC_RELEASE_CHECKLIST.md)
 - [`ROADMAP.md`](ROADMAP.md)
 
-## GitHub publishing
-
-```bash
-git init
-git branch -M main
-git add .
-git commit -s -m "Initial AISecurityControlPlane public preview"
-git remote add origin git@github.com:hellnbak/AISecurityControlPlane.git
-git push -u origin main
-git tag v0.6.0-public-preview
-git push origin v0.6.0-public-preview
 ```
